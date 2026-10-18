@@ -1,0 +1,90 @@
+diff --git a/fxjs/cjs_publicmethods.cpp b/fxjs/cjs_publicmethods.cpp
+index 92ee10d..5f00edc 100644
+--- a/fxjs/cjs_publicmethods.cpp
++++ b/fxjs/cjs_publicmethods.cpp
+@@ -72,9 +72,7 @@ const JSMethodSpec CJS_PublicMethods::GlobalFunctionSpecs[] = {
+ 
+ namespace {
+ 
+-#if !BUILDFLAG(IS_ANDROID)
+ constexpr double kDoubleCorrect = 0.000000000000001;
+-#endif
+ 
+ constexpr std::array<const char*, 14> kDateFormats = {
+     {"m/d", "m/d/yy", "mm/dd/yy", "mm/yy", "d-mmm", "d-mmm-yy", "dd-mmm-yy",
+@@ -101,7 +99,6 @@ void AlertIfPossible(CJS_EventContext* context,
+   }
+ }
+ 
+-#if !BUILDFLAG(IS_ANDROID)
+ ByteString CalculateString(double dValue,
+                            int iDec,
+                            int* iDec2,
+@@ -122,7 +119,6 @@ ByteString CalculateString(double dValue,
+                                                                 : pos);
+   return ByteString(value.c_str());
+ }
+-#endif
+ 
+ WideString CalcMergedString(const CJS_EventContext* event,
+                             const WideString& value,
+@@ -179,7 +175,6 @@ bool IsDigitSeparatorOrDecimalMark(int c) {
+   return c == '.' || c == ',';
+ }
+ 
+-#if !BUILDFLAG(IS_ANDROID)
+ bool IsStyleWithDigitSeparator(int style) {
+   return style == 0 || style == 2;
+ }
+@@ -192,7 +187,6 @@ char DigitSeparatorForStyle(int style) {
+ bool IsStyleWithApostropheSeparator(int style) {
+   return style >= 4;
+ }
+-#endif
+ 
+ bool IsStyleWithCommaDecimalMark(int style) {
+   return style == 2 || style == 3;
+@@ -202,11 +196,9 @@ char DecimalMarkForStyle(int style) {
+   return IsStyleWithCommaDecimalMark(style) ? ',' : '.';
+ }
+ 
+-#if !BUILDFLAG(IS_ANDROID)
+ void NormalizeDecimalMark(ByteString* str) {
+   str->Replace(",", ".");
+ }
+-#endif
+ 
+ void NormalizeDecimalMarkW(WideString* str) {
+   str->Replace(L",", L".");
+@@ -615,7 +607,6 @@ WideString CJS_PublicMethods::PrintDateUsingFormat(double dDate,
+ CJS_Result CJS_PublicMethods::AFNumber_Format(
+     CJS_Runtime* pRuntime,
+     pdfium::span<v8::Local<v8::Value>> params) {
+-#if !BUILDFLAG(IS_ANDROID)
+   if (params.size() != 6) {
+     return CJS_Result::Failure(JSMessage::kParamError);
+   }
+@@ -725,7 +716,6 @@ CJS_Result CJS_PublicMethods::AFNumber_Format(
+       }
+     }
+   }
+-#endif
+   return CJS_Result::Success();
+ }
+ 
+@@ -825,7 +815,6 @@ CJS_Result CJS_PublicMethods::AFNumber_Keystroke(
+ CJS_Result CJS_PublicMethods::AFPercent_Format(
+     CJS_Runtime* pRuntime,
+     pdfium::span<v8::Local<v8::Value>> params) {
+-#if !BUILDFLAG(IS_ANDROID)
+   if (params.size() < 2) {
+     return CJS_Result::Failure(JSMessage::kParamError);
+   }
+@@ -913,7 +902,6 @@ CJS_Result CJS_PublicMethods::AFPercent_Format(
+     strValue.InsertAtBack('%');
+   }
+   Value = WideString::FromUTF8(strValue.AsStringView());
+-#endif
+   return CJS_Result::Success();
+ }
+ 

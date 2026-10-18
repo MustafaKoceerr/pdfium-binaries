@@ -32,6 +32,8 @@ apply_patch "$PATCHES/clang_rt.patch" build
 
 # TilePDF: a fallback font for form fields (Turkish letters in Helvetica fields).
 apply_patch "$PATCHES/tilepdf/form-fallback-font.patch"
+# TilePDF: AFNumber_Format and AFPercent_Format, which upstream leaves out on Android.
+apply_patch "$PATCHES/tilepdf/number-format-on-android.patch"
 
 case "$OS" in
   android)
