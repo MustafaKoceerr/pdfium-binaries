@@ -1,0 +1,199 @@
+diff --git a/core/fpdfdoc/cpdf_bafontmap.cpp b/core/fpdfdoc/cpdf_bafontmap.cpp
+index 55c4eae..a309e33 100644
+--- a/core/fpdfdoc/cpdf_bafontmap.cpp
++++ b/core/fpdfdoc/cpdf_bafontmap.cpp
+@@ -33,6 +33,12 @@
+ 
+ namespace {
+ 
++// TilePDF: the fallback font's key in the form's /DR /Font, so one document
++// embeds it once however many fields need it.
++constexpr char kFallbackFontAlias[] = "TilePdfFallback";
++
++CPDF_BAFontMap::FallbackFontLoader g_fallback_font_loader = nullptr;
++
+ bool FindNativeTrueTypeFont(ByteStringView sFontFaceName) {
+   CFX_FontMgr* font_mgr = CFX_GEModule::Get()->GetFontMgr();
+   CFX_FontMapper* font_mapper = font_mgr->GetBuiltinMapper();
+@@ -99,6 +105,11 @@ CPDF_BAFontMap::CPDF_BAFontMap(CPDF_Document* document,
+ 
+ CPDF_BAFontMap::~CPDF_BAFontMap() = default;
+ 
++// static
++void CPDF_BAFontMap::SetFallbackFontLoader(FallbackFontLoader loader) {
++  g_fallback_font_loader = loader;
++}
++
+ RetainPtr<CPDF_Font> CPDF_BAFontMap::GetPDFFont(int32_t nFontIndex) {
+   if (fxcrt::IndexInBounds(data_, nFontIndex)) {
+     return data_[nFontIndex]->font;
+@@ -133,6 +144,12 @@ int32_t CPDF_BAFontMap::GetWordFontIndex(uint16_t word,
+     }
+   }
+ 
++  // TilePDF: before looking for native fonts, which only Windows has.
++  int32_t nFallbackIndex = GetFallbackFontIndex();
++  if (nFallbackIndex >= 0 && KnowWord(nFallbackIndex, word)) {
++    return nFallbackIndex;
++  }
++
+   int32_t nNewFontIndex =
+       GetFontIndex(GetCachedNativeFontName(nCharset), nCharset, true);
+   if (nNewFontIndex >= 0) {
+@@ -356,6 +373,48 @@ void CPDF_BAFontMap::AddFontToAnnotDict(const RetainPtr<CPDF_Font>& font,
+   }
+ }
+ 
++int32_t CPDF_BAFontMap::GetFallbackFontIndex() {
++  if (!g_fallback_font_loader) {
++    return -1;
++  }
++
++  const ByteString alias(kFallbackFontAlias);
++  int32_t index = FindFont(alias, FX_Charset::kDefault);
++  if (index >= 0) {
++    return index;
++  }
++
++  RetainPtr<CPDF_Dictionary> pRootDict = document_->GetMutableRoot();
++  RetainPtr<CPDF_Dictionary> pAcroFormDict =
++      pRootDict ? pRootDict->GetMutableDictFor(pdfium::catalog::kAcroForm)
++                : nullptr;
++  RetainPtr<CPDF_Dictionary> pDRFontDict =
++      pAcroFormDict
++          ? pAcroFormDict->GetOrCreateDictFor("DR")->GetOrCreateDictFor("Font")
++          : nullptr;
++
++  RetainPtr<CPDF_Font> font;
++  if (pDRFontDict) {
++    if (RetainPtr<CPDF_Dictionary> pFontDict =
++            pDRFontDict->GetMutableDictFor(alias.AsStringView())) {
++      font = CPDF_DocPageData::FromDocument(document_)->GetFont(pFontDict);
++    }
++  }
++  if (!font) {
++    font = g_fallback_font_loader(document_);
++    if (!font) {
++      return -1;
++    }
++    if (pDRFontDict) {
++      pDRFontDict->SetNewFor<CPDF_Reference>(alias, document_,
++                                             font->GetFontDictObjNum());
++    }
++  }
++
++  AddFontToAnnotDict(font, alias);
++  return AddFontData(font, alias, FX_Charset::kDefault);
++}
++
+ bool CPDF_BAFontMap::KnowWord(int32_t nFontIndex, uint16_t word) {
+   return fxcrt::IndexInBounds(data_, nFontIndex) &&
+          CharCodeFromUnicode(nFontIndex, word) >= 0;
+diff --git a/core/fpdfdoc/cpdf_bafontmap.h b/core/fpdfdoc/cpdf_bafontmap.h
+index d49285c..db9bef8 100644
+--- a/core/fpdfdoc/cpdf_bafontmap.h
++++ b/core/fpdfdoc/cpdf_bafontmap.h
+@@ -20,6 +20,11 @@ class CPDF_Document;
+ 
+ class CPDF_BAFontMap final : public IPVT_FontMap {
+  public:
++  // TilePDF: makes a font for |document| that covers characters the field's
++  // own font lacks. Null means no fallback, as upstream.
++  using FallbackFontLoader = RetainPtr<CPDF_Font> (*)(CPDF_Document* document);
++  static void SetFallbackFontLoader(FallbackFontLoader loader);
++
+   static FX_Charset GetNativeCharset();
+ 
+   CPDF_BAFontMap(CPDF_Document* document,
+@@ -61,6 +66,7 @@ class CPDF_BAFontMap final : public IPVT_FontMap {
+                           const ByteString& sAlias);
+ 
+   bool KnowWord(int32_t nFontIndex, uint16_t word);
++  int32_t GetFallbackFontIndex();
+ 
+   int32_t GetFontIndex(const ByteString& sFontName,
+                        FX_Charset nCharset,
+diff --git a/fpdfsdk/fpdf_edittext.cpp b/fpdfsdk/fpdf_edittext.cpp
+index 727d302..a7a1547 100644
+--- a/fpdfsdk/fpdf_edittext.cpp
++++ b/fpdfsdk/fpdf_edittext.cpp
+@@ -27,6 +27,7 @@
+ #include "core/fpdfapi/render/cpdf_rendercontext.h"
+ #include "core/fpdfapi/render/cpdf_renderstatus.h"
+ #include "core/fpdfapi/render/cpdf_textrenderer.h"
++#include "core/fpdfdoc/cpdf_bafontmap.h"
+ #include "core/fpdftext/cpdf_textpage.h"
+ #include "core/fxcrt/byteorder.h"
+ #include "core/fxcrt/check.h"
+@@ -465,6 +466,47 @@ FPDF_EXPORT FPDF_FONT FPDF_CALLCONV FPDFText_LoadFont(FPDF_DOCUMENT document,
+           : LoadSimpleFont(doc, std::move(pFont), span, font_type).Leak());
+ }
+ 
++namespace {
++
++// TilePDF: the fallback form font's bytes. FreeType reads the face from them
++// for as long as the process runs, so they are set once and never freed.
++std::vector<uint8_t>& FormFallbackFontData() {
++  static std::vector<uint8_t>* data = new std::vector<uint8_t>();
++  return *data;
++}
++
++RetainPtr<CPDF_Font> LoadFormFallbackFont(CPDF_Document* doc) {
++  const std::vector<uint8_t>& data = FormFallbackFontData();
++  if (data.empty()) {
++    return nullptr;
++  }
++  pdfium::span<const uint8_t> span(data);
++  auto font = std::make_unique<CFX_Font>();
++  if (!font->LoadFaceZeroFromSpan(span, /*force_vertical=*/false,
++                                  /*object_tag=*/0)) {
++    return nullptr;
++  }
++  return LoadCompositeFont(doc, std::move(font), span, FPDF_FONT_TRUETYPE);
++}
++
++}  // namespace
++
++FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
++FPDF_TilePdfSetFormFallbackFont(const uint8_t* data, uint32_t size) {
++  std::vector<uint8_t>& stored = FormFallbackFontData();
++  if (!stored.empty()) {
++    return false;
++  }
++  if (!data || size == 0) {
++    return false;
++  }
++  // SAFETY: required from caller.
++  auto span = UNSAFE_BUFFERS(pdfium::span(data, size));
++  stored.assign(span.begin(), span.end());
++  CPDF_BAFontMap::SetFallbackFontLoader(&LoadFormFallbackFont);
++  return true;
++}
++
+ FPDF_EXPORT FPDF_FONT FPDF_CALLCONV
+ FPDFText_LoadStandardFont(FPDF_DOCUMENT document, FPDF_BYTESTRING font) {
+   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
+diff --git a/public/fpdf_edit.h b/public/fpdf_edit.h
+index 77fa19c..30950b9 100644
+--- a/public/fpdf_edit.h
++++ b/public/fpdf_edit.h
+@@ -1441,6 +1441,19 @@ FPDF_EXPORT FPDF_FONT FPDF_CALLCONV FPDFText_LoadFont(FPDF_DOCUMENT document,
+                                                       int font_type,
+                                                       FPDF_BOOL cid);
+ 
++// TilePDF API.
++// Sets a TrueType font that form fields use for characters their own font
++// lacks, such as Turkish letters in a Helvetica field. The first field that
++// needs it embeds it into the document, under /DR /Font /TilePdfFallback.
++// Without it PDFium finds such fonts only on Windows.
++//
++// data - the font's bytes, copied.
++// size - the size of |data|.
++//
++// Returns TRUE if the font was set. It can be set only once per process.
++FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
++FPDF_TilePdfSetFormFallbackFont(const uint8_t* data, uint32_t size);
++
+ // Experimental API.
+ // Loads one of the standard 14 fonts per PDF spec 1.7 page 416. The preferred
+ // way of using font style is using a dash to separate the name from the style,

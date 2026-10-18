@@ -30,6 +30,9 @@ apply_patch "$PATCHES/clang_rt.patch" build
 
 [ "$ENABLE_V8" == "true" ] && apply_patch "$PATCHES/v8/pdfium.patch"
 
+# TilePDF: a fallback font for form fields (Turkish letters in Helvetica fields).
+apply_patch "$PATCHES/tilepdf/form-fallback-font.patch"
+
 case "$OS" in
   android)
     apply_patch "$PATCHES/android/build.patch" build
