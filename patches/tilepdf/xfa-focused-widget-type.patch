@@ -1,0 +1,63 @@
+diff --git a/fpdfsdk/fpdf_formfill.cpp b/fpdfsdk/fpdf_formfill.cpp
+index 5e01cde..f29d5f9 100644
+--- a/fpdfsdk/fpdf_formfill.cpp
++++ b/fpdfsdk/fpdf_formfill.cpp
+@@ -37,6 +37,9 @@
+ #ifdef PDF_ENABLE_XFA
+ #include "fpdfsdk/fpdfxfa/cpdfxfa_context.h"
+ #include "fpdfsdk/fpdfxfa/cpdfxfa_page.h"
++#include "fpdfsdk/fpdfxfa/cpdfxfa_widget.h"
++#include "xfa/fxfa/cxfa_ffwidget.h"
++#include "xfa/fxfa/parser/cxfa_node.h"
+ #endif  // PDF_ENABLE_XFA
+ 
+ #if defined(PDF_USE_SKIA)
+@@ -1019,3 +1022,23 @@ FORM_SetTextDirection(FPDF_FORMHANDLE handle,
+ 
+   return true;
+ }
++
++FPDF_EXPORT int FPDF_CALLCONV
++FORM_TilePdfGetFocusedXfaWidgetType(FPDF_FORMHANDLE handle) {
++#ifdef PDF_ENABLE_XFA
++  CPDFSDK_FormFillEnvironment* form_fill_env =
++      CPDFSDKFormFillEnvironmentFromFPDFFormHandle(handle);
++  if (!form_fill_env) {
++    return -1;
++  }
++  CPDFSDK_Annot* annot = form_fill_env->GetFocusAnnot();
++  CPDFXFA_Widget* widget = annot ? annot->AsXFAWidget() : nullptr;
++  CXFA_FFWidget* ffwidget = widget ? widget->GetXFAFFWidget() : nullptr;
++  if (!ffwidget || !ffwidget->GetNode()) {
++    return -1;
++  }
++  return static_cast<int>(ffwidget->GetNode()->GetFFWidgetType());
++#else
++  return -1;
++#endif  // PDF_ENABLE_XFA
++}
+diff --git a/public/fpdf_formfill.h b/public/fpdf_formfill.h
+index ed70a1c..5243c49 100644
+--- a/public/fpdf_formfill.h
++++ b/public/fpdf_formfill.h
+@@ -1856,6 +1856,20 @@ FORM_SetTextDirection(FPDF_FORMHANDLE handle,
+                       FPDF_ANNOTATION annot,
+                       FPDF_TEXT_DIRECTION direction);
+ 
++// TilePDF API.
++// Function: FORM_TilePdfGetFocusedXfaWidgetType
++//       The kind of the focused XFA widget, which FORM_GetFocusedAnnot()
++//       doesn't report.
++// Parameters:
++//       handle  -   Handle to the form fill module, as returned by
++//                   FPDFDOC_InitFormFillEnvironment().
++// Return Value:
++//       -1 if no XFA widget has the focus; else PDFium's XFA_FFWidgetType:
++//       5 date and time, 7 numeric, 8 password and 10 text edits, 3 check
++//       buttons, 4 choice lists, and so on.
++FPDF_EXPORT int FPDF_CALLCONV
++FORM_TilePdfGetFocusedXfaWidgetType(FPDF_FORMHANDLE handle);
++
+ // Function: FPDF_LoadXFA
+ //          If the document consists of XFA fields, call this method to
+ //          attempt to load XFA fields.

@@ -34,6 +34,8 @@ apply_patch "$PATCHES/clang_rt.patch" build
 apply_patch "$PATCHES/tilepdf/form-fallback-font.patch"
 # TilePDF: AFNumber_Format and AFPercent_Format, which upstream leaves out on Android.
 apply_patch "$PATCHES/tilepdf/number-format-on-android.patch"
+# TilePDF: which kind of XFA widget has the focus, which FORM_GetFocusedAnnot leaves out.
+apply_patch "$PATCHES/tilepdf/xfa-focused-widget-type.patch"
 
 case "$OS" in
   android)
