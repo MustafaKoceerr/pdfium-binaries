@@ -19,3 +19,43 @@ index 00c5757..38abcdc 100644
  
    for (CFX_XMLNode* pChild = GetFirstChild(); pChild;
         pChild = pChild->GetNextSibling()) {
+diff --git a/xfa/fxfa/parser/xfa_utils.cpp b/xfa/fxfa/parser/xfa_utils.cpp
+index 194c8a5..9cf7385 100644
+--- a/xfa/fxfa/parser/xfa_utils.cpp
++++ b/xfa/fxfa/parser/xfa_utils.cpp
+@@ -177,6 +177,9 @@ void RegenerateFormFile_Changed(CXFA_Node* pNode,
+   }
+ 
+   WideString wsChildren;
++  // TilePDF: a line break before text would become part of the text, such as
++  // a caption or a filled-in value, so it only goes before child elements.
++  bool bTextChildren = false;
+   switch (pNode->GetObjectType()) {
+     case XFA_ObjectType::ContentNode: {
+       if (!bSaveXML && !ContentNodeNeedtoExport(pNode)) {
+@@ -245,6 +248,7 @@ void RegenerateFormFile_Changed(CXFA_Node* pNode,
+         WideString wsValue =
+             pRawValueNode->JSObject()->GetCData(XFA_Attribute::Value);
+         wsChildren += ExportEncodeContent(wsValue);
++        bTextChildren = true;
+       }
+       break;
+     }
+@@ -253,6 +257,7 @@ void RegenerateFormFile_Changed(CXFA_Node* pNode,
+     case XFA_ObjectType::NodeV: {
+       WideString wsValue = pNode->JSObject()->GetCData(XFA_Attribute::Value);
+       wsChildren += ExportEncodeContent(wsValue);
++      bTextChildren = true;
+       break;
+     }
+     default:
+@@ -297,7 +302,8 @@ void RegenerateFormFile_Changed(CXFA_Node* pNode,
+     if (wsChildren.IsEmpty()) {
+       buf << "/>\n";
+     } else {
+-      buf << ">\n" << wsChildren << "</" << wsElement << ">\n";
++      buf << (bTextChildren ? ">" : ">\n") << wsChildren << "</" << wsElement
++          << ">\n";
+     }
+   }
+ }
