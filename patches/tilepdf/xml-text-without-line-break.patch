@@ -1,0 +1,21 @@
+diff --git a/core/fxcrt/xml/cfx_xmlelement.cpp b/core/fxcrt/xml/cfx_xmlelement.cpp
+index 00c5757..38abcdc 100644
+--- a/core/fxcrt/xml/cfx_xmlelement.cpp
++++ b/core/fxcrt/xml/cfx_xmlelement.cpp
+@@ -97,7 +97,15 @@ void CFX_XMLElement::Save(
+     return;
+   }
+ 
+-  pXMLStream->WriteString(">\n");
++  // TilePDF: a line break before text would become part of the text, such as
++  // a filled-in XFA field's value, so it only goes before child elements.
++  bool has_text = false;
++  for (CFX_XMLNode* pChild = GetFirstChild(); pChild;
++       pChild = pChild->GetNextSibling()) {
++    has_text = has_text || pChild->GetType() == CFX_XMLNode::Type::kText ||
++               pChild->GetType() == CFX_XMLNode::Type::kCharData;
++  }
++  pXMLStream->WriteString(has_text ? ">" : ">\n");
+ 
+   for (CFX_XMLNode* pChild = GetFirstChild(); pChild;
+        pChild = pChild->GetNextSibling()) {

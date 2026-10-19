@@ -36,6 +36,8 @@ apply_patch "$PATCHES/tilepdf/form-fallback-font.patch"
 apply_patch "$PATCHES/tilepdf/number-format-on-android.patch"
 # TilePDF: which kind of XFA widget has the focus, which FORM_GetFocusedAnnot leaves out.
 apply_patch "$PATCHES/tilepdf/xfa-focused-widget-type.patch"
+# TilePDF: no line break written before XML text, which became part of XFA values.
+apply_patch "$PATCHES/tilepdf/xml-text-without-line-break.patch"
 
 case "$OS" in
   android)
