@@ -1,0 +1,87 @@
+name: Upstream change test
+
+# Builds PDFium main for Linux with V8 and XFA and runs its own tests for a
+# change we want to send to pdfium-review: once with only the change's tests
+# (they should fail) and once with the whole change (everything should pass).
+
+on:
+  push:
+    branches: [upstream-test]
+
+env:
+  # The change under test, in upstream/, and the PDFium branch it applies to.
+  PATCH: xml-text-line-break.patch
+  PDFIUM_BRANCH: main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.fix && 'Tests and fix' || 'Tests only' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        fix: [false, true]
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@v4
+        with:
+          path: fork
+
+      - name: Install depot_tools
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          echo "$PWD/depot_tools" >> "$GITHUB_PATH"
+
+      - name: Checkout PDFium
+        run: |
+          gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git
+          gclient sync -r "origin/$PDFIUM_BRANCH" --no-history --shallow
+          git -C pdfium log -1 --oneline
+
+      - name: Apply change
+        run: |
+          PATCH="$PWD/fork/upstream/$PATCH"
+          if [ "${{ matrix.fix }}" == "true" ]; then
+            git -C pdfium apply --index "$PATCH"
+          else
+            git -C pdfium apply --index --include='*test*' --include='*BUILD.gn' "$PATCH"
+          fi
+          git -C pdfium diff --cached --stat
+
+      - name: Configure
+        working-directory: pdfium
+        run: |
+          mkdir -p out
+          cat > out/args.gn <<'EOF'
+          is_debug = false
+          pdf_is_standalone = true
+          pdf_enable_v8 = true
+          pdf_enable_xfa = true
+          pdf_use_partition_alloc = false
+          is_component_build = false
+          clang_use_chrome_plugins = false
+          use_remoteexec = false
+          EOF
+          gn gen out
+
+      - name: Build
+        working-directory: pdfium
+        run: ninja -C out pdfium_unittests pdfium_embeddertests
+
+      - name: Unit tests
+        if: ${{ !cancelled() }}
+        working-directory: pdfium
+        run: out/pdfium_unittests
+
+      - name: Embedder tests
+        if: ${{ !cancelled() }}
+        working-directory: pdfium
+        run: out/pdfium_embeddertests

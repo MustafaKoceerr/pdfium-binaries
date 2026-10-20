@@ -1,0 +1,214 @@
+From 86fe477861c1c10baa29092144d636eea1737df3 Mon Sep 17 00:00:00 2001
+From: MustafaKoceerr <mustafakumrubm@gmail.com>
+Date: Tue, 20 Oct 2026 01:42:20 +0300
+Subject: [PATCH] Do not write a line break before XML text content
+
+CFX_XMLElement::Save() and RegenerateFormFile_Changed() always write
+">\n" after a start tag. When the element's children are text, as in a
+filled-in XFA field value, the line break becomes part of that text, so
+a saved form opens again with a line break in front of every value.
+
+Write the line break only when all children are elements.
+---
+ core/fxcrt/xml/cfx_xmlelement.cpp          | 18 ++++++++-
+ core/fxcrt/xml/cfx_xmlelement_unittest.cpp | 34 +++++++++++++++-
+ fxjs/BUILD.gn                              |  1 +
+ fxjs/xfa/cjx_node_embeddertest.cpp         | 47 ++++++++++++++++++++++
+ xfa/fxfa/parser/xfa_utils.cpp              |  7 +++-
+ 5 files changed, 103 insertions(+), 4 deletions(-)
+ create mode 100644 fxjs/xfa/cjx_node_embeddertest.cpp
+
+diff --git a/core/fxcrt/xml/cfx_xmlelement.cpp b/core/fxcrt/xml/cfx_xmlelement.cpp
+index 3201d54e2..7700fc0ad 100644
+--- a/core/fxcrt/xml/cfx_xmlelement.cpp
++++ b/core/fxcrt/xml/cfx_xmlelement.cpp
+@@ -12,6 +12,20 @@
+ #include "core/fxcrt/xml/cfx_xmldocument.h"
+ #include "core/fxcrt/xml/cfx_xmltext.h"
+ 
++namespace {
++
++bool HasTextChild(const CFX_XMLElement& element) {
++  for (const CFX_XMLNode* pChild = element.GetFirstChild(); pChild;
++       pChild = pChild->GetNextSibling()) {
++    if (IsXMLText(pChild)) {
++      return true;
++    }
++  }
++  return false;
++}
++
++}  // namespace
++
+ CFX_XMLElement::CFX_XMLElement(const WideString& wsTag) : name_(wsTag) {
+   DCHECK(!name_.IsEmpty());
+ }
+@@ -95,7 +109,9 @@ void CFX_XMLElement::Save(
+     return;
+   }
+ 
+-  pXMLStream->WriteString(">\n");
++  // A line break before text would become part of that text, so only write
++  // one when all children are elements.
++  pXMLStream->WriteString(HasTextChild(*this) ? ">" : ">\n");
+ 
+   for (CFX_XMLNode* pChild = GetFirstChild(); pChild;
+        pChild = pChild->GetNextSibling()) {
+diff --git a/core/fxcrt/xml/cfx_xmlelement_unittest.cpp b/core/fxcrt/xml/cfx_xmlelement_unittest.cpp
+index 3bcaf2e66..c624090b6 100644
+--- a/core/fxcrt/xml/cfx_xmlelement_unittest.cpp
++++ b/core/fxcrt/xml/cfx_xmlelement_unittest.cpp
+@@ -143,14 +143,44 @@ TEST(CFXXMLElementTest, SaveWithChildren) {
+ 
+   node.Save(stream);
+   EXPECT_EQ(
+-      "<node>\n"
++      "<node>"
+       "Text Child 1"
+-      "<node-child>\nText Child 2</node-child>\n"
++      "<node-child>Text Child 2</node-child>\n"
+       "<![CDATA[Char Data]]>"
+       "</node>\n",
+       stream->ToString());
+ }
+ 
++TEST(CFXXMLElementTest, SaveWithElementChildren) {
++  auto stream = pdfium::MakeRetain<StringWriteStream>();
++  CFX_XMLElement node(L"node");
++
++  CFX_XMLElement node_child1(L"node-child1");
++  node.AppendLastChild(&node_child1);
++
++  CFX_XMLElement node_child2(L"node-child2");
++  node.AppendLastChild(&node_child2);
++
++  node.Save(stream);
++  EXPECT_EQ(
++      "<node>\n"
++      "<node-child1 />\n"
++      "<node-child2 />\n"
++      "</node>\n",
++      stream->ToString());
++}
++
++TEST(CFXXMLElementTest, SaveWithTextChildOnly) {
++  auto stream = pdfium::MakeRetain<StringWriteStream>();
++  CFX_XMLElement node(L"node");
++
++  CFX_XMLText text_child(L"Value");
++  node.AppendLastChild(&text_child);
++
++  node.Save(stream);
++  EXPECT_EQ("<node>Value</node>\n", stream->ToString());
++}
++
+ TEST(CFXXMLElementTest, SaveWithNamespace) {
+   auto stream = pdfium::MakeRetain<StringWriteStream>();
+   CFX_XMLElement node(L"test:root");
+diff --git a/fxjs/BUILD.gn b/fxjs/BUILD.gn
+index 849fa5856..fdf68f9a9 100644
+--- a/fxjs/BUILD.gn
++++ b/fxjs/BUILD.gn
+@@ -300,6 +300,7 @@ if (pdf_enable_v8) {
+         "xfa/cfxjse_formcalc_context_embeddertest.cpp",
+         "xfa/cjx_hostpseudomodel_embeddertest.cpp",
+         "xfa/cjx_list_embeddertest.cpp",
++        "xfa/cjx_node_embeddertest.cpp",
+         "xfa/cjx_object_embeddertest.cpp",
+       ]
+       deps += [
+diff --git a/fxjs/xfa/cjx_node_embeddertest.cpp b/fxjs/xfa/cjx_node_embeddertest.cpp
+new file mode 100644
+index 000000000..ccfc12ba7
+--- /dev/null
++++ b/fxjs/xfa/cjx_node_embeddertest.cpp
+@@ -0,0 +1,47 @@
++// Copyright 2026 The PDFium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "fxjs/xfa/cjx_node.h"
++
++#include <string>
++
++#include "core/fxcrt/bytestring.h"
++#include "fxjs/fxv8.h"
++#include "fxjs/xfa/cfxjse_engine.h"
++#include "fxjs/xfa/cfxjse_isolatetracker.h"
++#include "testing/gmock/include/gmock/gmock.h"
++#include "testing/gtest/include/gtest/gtest.h"
++#include "testing/xfa_js_embedder_test.h"
++
++using testing::HasSubstr;
++using testing::Not;
++
++class CJXNodeEmbedderTest : public XFAJSEmbedderTest {
++ protected:
++  std::string ExecuteToString(ByteStringView input) {
++    EXPECT_TRUE(Execute(input)) << "Program: " << input;
++
++    CFXJSE_ScopeUtil_IsolateHandleContext scope(
++        GetScriptContext()->GetJseContextForTest());
++    ByteString value =
++        fxv8::ReentrantToByteStringHelper(isolate(), GetValue());
++    return std::string(value.c_str(), value.GetLength());
++  }
++};
++
++TEST_F(CJXNodeEmbedderTest, SaveXMLKeepsFieldValue) {
++  ASSERT_TRUE(OpenDocument("xfa/xfa_multiline_textfield.pdf"));
++  ASSERT_TRUE(
++      Execute("$form.form1.Page1.TextField1.rawValue = \"FieldValue\""));
++
++  // Both the form packet and the data packet must save the value as it is,
++  // without a line break in front of it.
++  std::string form_xml = ExecuteToString("$form.saveXML()");
++  EXPECT_THAT(form_xml, HasSubstr(">FieldValue</"));
++  EXPECT_THAT(form_xml, Not(HasSubstr("\nFieldValue")));
++
++  std::string data_xml = ExecuteToString("$datasets.saveXML()");
++  EXPECT_THAT(data_xml, HasSubstr(">FieldValue</"));
++  EXPECT_THAT(data_xml, Not(HasSubstr("\nFieldValue")));
++}
+diff --git a/xfa/fxfa/parser/xfa_utils.cpp b/xfa/fxfa/parser/xfa_utils.cpp
+index 194c8a5bb..15d37baea 100644
+--- a/xfa/fxfa/parser/xfa_utils.cpp
++++ b/xfa/fxfa/parser/xfa_utils.cpp
+@@ -177,6 +177,7 @@ void RegenerateFormFile_Changed(CXFA_Node* pNode,
+   }
+ 
+   WideString wsChildren;
++  bool bChildrenAreText = false;
+   switch (pNode->GetObjectType()) {
+     case XFA_ObjectType::ContentNode: {
+       if (!bSaveXML && !ContentNodeNeedtoExport(pNode)) {
+@@ -245,6 +246,7 @@ void RegenerateFormFile_Changed(CXFA_Node* pNode,
+         WideString wsValue =
+             pRawValueNode->JSObject()->GetCData(XFA_Attribute::Value);
+         wsChildren += ExportEncodeContent(wsValue);
++        bChildrenAreText = true;
+       }
+       break;
+     }
+@@ -253,6 +255,7 @@ void RegenerateFormFile_Changed(CXFA_Node* pNode,
+     case XFA_ObjectType::NodeV: {
+       WideString wsValue = pNode->JSObject()->GetCData(XFA_Attribute::Value);
+       wsChildren += ExportEncodeContent(wsValue);
++      bChildrenAreText = true;
+       break;
+     }
+     default:
+@@ -297,7 +300,9 @@ void RegenerateFormFile_Changed(CXFA_Node* pNode,
+     if (wsChildren.IsEmpty()) {
+       buf << "/>\n";
+     } else {
+-      buf << ">\n" << wsChildren << "</" << wsElement << ">\n";
++      // A line break before text would become part of that text.
++      buf << (bChildrenAreText ? ">" : ">\n") << wsChildren << "</"
++          << wsElement << ">\n";
+     }
+   }
+ }
+-- 
+2.56.0.windows.1
+
