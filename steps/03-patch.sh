@@ -43,6 +43,8 @@ apply_patch "$PATCHES/tilepdf/xml-text-without-line-break.patch"
 apply_patch "$PATCHES/tilepdf/import-missing-object-as-null.patch"
 # TilePDF: page import maps every imported page first, so links between them stay.
 apply_patch "$PATCHES/tilepdf/import-links-between-imported-pages.patch"
+# TilePDF: page import translates a popup's /Parent; a widget's goes (no stale numbers).
+apply_patch "$PATCHES/tilepdf/import-annotation-parents.patch"
 
 case "$OS" in
   android)

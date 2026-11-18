@@ -1,0 +1,253 @@
+diff --git a/core/fpdfapi/edit/cpdf_pageorganizer.cpp b/core/fpdfapi/edit/cpdf_pageorganizer.cpp
+index 332a98389..f05aa69eb 100644
+--- a/core/fpdfapi/edit/cpdf_pageorganizer.cpp
++++ b/core/fpdfapi/edit/cpdf_pageorganizer.cpp
+@@ -94,9 +94,28 @@ bool CPDF_PageOrganizer::UpdateReference(RetainPtr<CPDF_Object> obj) {
+         CPDF_DictionaryLocker locker(dict);
+         for (const auto& it : locker) {
+           const ByteString& key = it.first;
+-          if (key == "Parent" || key == "Prev" || key == "First") {
++          if (key == "Prev" || key == "First") {
+             continue;
+           }
++          if (key == "Parent") {
++            // TilePDF: a page's /Parent is its new page tree, so it stays.
++            // Elsewhere, a /Parent copied untranslated would keep the source's
++            // object number and point to an unrelated object once saved. An
++            // annotation's parent, such as a popup's markup annotation, is
++            // translated; any other, such as a widget's form field, is left
++            // out, as the form isn't imported and copying the field would
++            // bring along its other widgets and values.
++            const ByteString type = dict->GetByteStringFor("Type");
++            if (type == "Page" || type == "Pages") {
++              continue;
++            }
++            RetainPtr<const CPDF_Dictionary> parent =
++                ToDictionary(it.second->GetDirect());
++            if (!parent || !parent->KeyExist("Subtype")) {
++              bad_keys.push_back(key);
++              continue;
++            }
++          }
+           RetainPtr<CPDF_Object> next_obj = it.second;
+           if (!UpdateReference(next_obj)) {
+             bad_keys.push_back(key);
+diff --git a/fpdfsdk/fpdf_ppo_embeddertest.cpp b/fpdfsdk/fpdf_ppo_embeddertest.cpp
+index 39db5271f..86480f04c 100644
+--- a/fpdfsdk/fpdf_ppo_embeddertest.cpp
++++ b/fpdfsdk/fpdf_ppo_embeddertest.cpp
+@@ -23,6 +23,7 @@
+ #include "core/fxge/cfx_renderdevice.h"
+ #include "fpdfsdk/cpdfsdk_helpers.h"
+ #include "public/cpp/fpdf_scopers.h"
++#include "public/fpdf_annot.h"
+ #include "public/fpdf_doc.h"
+ #include "public/fpdf_edit.h"
+ #include "public/fpdf_save.h"
+@@ -648,6 +649,44 @@ TEST_F(FPDFPPOEmbedderTest, ImportKeepsLinksBetweenImportedPages) {
+   }
+ }
+ 
++// TilePDF: annotation 0 is a popup whose /Parent is annotation 1, and
++// annotation 2 is a widget whose /Parent is a form field.
++TEST_F(FPDFPPOEmbedderTest, ImportTranslatesAnnotationParents) {
++  ASSERT_TRUE(OpenDocument("import_annot_parents.pdf"));
++
++  ScopedFPDFDocument new_doc(FPDF_CreateNewDocument());
++  ASSERT_TRUE(new_doc);
++  // A few pages first, so that the source's object numbers are taken by
++  // unrelated objects in the new document.
++  for (int i = 0; i < 3; ++i) {
++    ScopedFPDFPage page(FPDFPage_New(new_doc.get(), i, 200, 200));
++    ASSERT_TRUE(page);
++  }
++
++  static constexpr int kIndices[] = {0};
++  ASSERT_TRUE(FPDF_ImportPagesByIndex(new_doc.get(), document(), kIndices,
++                                      std::size(kIndices), 3));
++  ASSERT_TRUE(FPDF_SaveAsCopy(new_doc.get(), this, 0));
++
++  ScopedSavedDoc saved_doc = OpenScopedSavedDocument();
++  ASSERT_TRUE(saved_doc);
++  ScopedSavedPage saved_page = LoadScopedSavedPage(3);
++  ASSERT_TRUE(saved_page);
++  ASSERT_EQ(3, FPDFPage_GetAnnotCount(saved_page.get()));
++
++  ScopedFPDFAnnotation popup(FPDFPage_GetAnnot(saved_page.get(), 0));
++  ASSERT_TRUE(popup);
++  EXPECT_EQ(FPDF_ANNOT_POPUP, FPDFAnnot_GetSubtype(popup.get()));
++  ScopedFPDFAnnotation parent(FPDFAnnot_GetLinkedAnnot(popup.get(), "Parent"));
++  ASSERT_TRUE(parent);
++  EXPECT_EQ(1, FPDFPage_GetAnnotIndex(saved_page.get(), parent.get()));
++
++  ScopedFPDFAnnotation widget(FPDFPage_GetAnnot(saved_page.get(), 2));
++  ASSERT_TRUE(widget);
++  EXPECT_EQ(FPDF_ANNOT_WIDGET, FPDFAnnot_GetSubtype(widget.get()));
++  EXPECT_FALSE(FPDFAnnot_HasKey(widget.get(), "Parent"));
++}
++
+ TEST_F(FPDFPPOEmbedderTest, ImportWithSelfReferentialPageParent) {
+   ASSERT_TRUE(OpenDocument("bug_517126568.pdf"));
+   ASSERT_EQ(1, FPDF_GetPageCount(document()));
+diff --git a/testing/resources/import_annot_parents.in b/testing/resources/import_annot_parents.in
+new file mode 100644
+index 000000000..243dfe9d7
+--- /dev/null
++++ b/testing/resources/import_annot_parents.in
+@@ -0,0 +1,67 @@
++{{header}}
++{{object 1 0}} <<
++  /Type /Catalog
++  /Pages 2 0 R
++  /AcroForm << /Fields [8 0 R] >>
++>>
++endobj
++{{object 2 0}} <<
++  /Type /Pages
++  /MediaBox [0 0 200 200]
++  /Resources << >>
++  /Count 1
++  /Kids [3 0 R]
++>>
++endobj
++% The popup comes before its markup annotation.
++{{object 3 0}} <<
++  /Type /Page
++  /Parent 2 0 R
++  /Contents 9 0 R
++  /Annots [5 0 R 6 0 R 7 0 R]
++>>
++endobj
++{{object 5 0}} <<
++  /Type /Annot
++  /Subtype /Popup
++  /Rect [100 100 190 190]
++  /Parent 6 0 R
++>>
++endobj
++{{object 6 0}} <<
++  /Type /Annot
++  /Subtype /Text
++  /Rect [10 150 30 170]
++  /Contents (A note)
++  /Popup 5 0 R
++>>
++endobj
++% A widget of a field with one kid.
++{{object 7 0}} <<
++  /Type /Annot
++  /Subtype /Widget
++  /Rect [10 10 90 30]
++  /P 3 0 R
++  /Parent 8 0 R
++>>
++endobj
++{{object 8 0}} <<
++  /FT /Tx
++  /T (Field)
++  /V (Value)
++  /Kids [7 0 R]
++>>
++endobj
++{{object 9 0}} <<
++  {{streamlen}}
++>>
++stream
++0 0 1 rg
++10 10 40 40 re
++f
++endstream
++endobj
++{{xref}}
++{{trailer}}
++{{startxref}}
++%%EOF
+diff --git a/testing/resources/import_annot_parents.pdf b/testing/resources/import_annot_parents.pdf
+new file mode 100644
+index 000000000..bc2fa72a5
+--- /dev/null
++++ b/testing/resources/import_annot_parents.pdf
+@@ -0,0 +1,83 @@
++%PDF-1.7
++% ò¤ô
++1 0 obj <<
++  /Type /Catalog
++  /Pages 2 0 R
++  /AcroForm << /Fields [8 0 R] >>
++>>
++endobj
++2 0 obj <<
++  /Type /Pages
++  /MediaBox [0 0 200 200]
++  /Resources << >>
++  /Count 1
++  /Kids [3 0 R]
++>>
++endobj
++% The popup comes before its markup annotation.
++3 0 obj <<
++  /Type /Page
++  /Parent 2 0 R
++  /Contents 9 0 R
++  /Annots [5 0 R 6 0 R 7 0 R]
++>>
++endobj
++5 0 obj <<
++  /Type /Annot
++  /Subtype /Popup
++  /Rect [100 100 190 190]
++  /Parent 6 0 R
++>>
++endobj
++6 0 obj <<
++  /Type /Annot
++  /Subtype /Text
++  /Rect [10 150 30 170]
++  /Contents (A note)
++  /Popup 5 0 R
++>>
++endobj
++% A widget of a field with one kid.
++7 0 obj <<
++  /Type /Annot
++  /Subtype /Widget
++  /Rect [10 10 90 30]
++  /P 3 0 R
++  /Parent 8 0 R
++>>
++endobj
++8 0 obj <<
++  /FT /Tx
++  /T (Field)
++  /V (Value)
++  /Kids [7 0 R]
++>>
++endobj
++9 0 obj <<
++  /Length 25
++>>
++stream
++0 0 1 rg
++10 10 40 40 re
++f
++endstream
++endobj
++xref
++0 10
++0000000000 65535 f 
++0000000015 00000 n 
++0000000102 00000 n 
++0000000258 00000 n 
++0000000000 65535 f 
++0000000357 00000 n 
++0000000453 00000 n 
++0000000602 00000 n 
++0000000706 00000 n 
++0000000779 00000 n 
++trailer <<
++  /Root 1 0 R
++  /Size 10
++>>
++startxref
++856
++%%EOF
