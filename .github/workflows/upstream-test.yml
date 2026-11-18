@@ -35,6 +35,13 @@ jobs:
         with:
           path: fork
 
+      # TransFormWithClipAndSaveWithLocale switches to da_DK.UTF-8 and stops
+      # the whole embedder test run if the runner doesn't have that locale.
+      - name: Install test locale
+        run: |
+          sudo locale-gen da_DK.UTF-8
+          locale -a | grep -i da_dk
+
       - name: Install depot_tools
         run: |
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
