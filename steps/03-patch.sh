@@ -45,6 +45,8 @@ apply_patch "$PATCHES/tilepdf/import-missing-object-as-null.patch"
 apply_patch "$PATCHES/tilepdf/import-links-between-imported-pages.patch"
 # TilePDF: page import translates a popup's /Parent; a widget's goes (no stale numbers).
 apply_patch "$PATCHES/tilepdf/import-annotation-parents.patch"
+# TilePDF: deleting a page takes its form fields out of /AcroForm.
+apply_patch "$PATCHES/tilepdf/delete-page-form-fields.patch"
 
 case "$OS" in
   android)
