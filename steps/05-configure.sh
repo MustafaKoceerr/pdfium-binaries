@@ -53,12 +53,19 @@ mkdir -p "$BUILD"
       [ -n "$TARGET_ENVIRONMENT" ] && echo "target_environment = \"$TARGET_ENVIRONMENT\""
       if [ "$ENABLE_V8" == "true" ]; then
         echo 'ios_deployment_target = "17.4"'
+        case "$TARGET_CPU" in
+            arm64)
+                echo 'arm_control_flow_integrity = "none"'
+                ;;
+            x64)
+                echo 'v8_enable_builtins_optimization = true'
+                ;;
+        esac
       else
         echo 'ios_deployment_target = "17.0"'
       fi
       echo "ios_enable_code_signing = false"
       echo "use_blink = true"
-      [ "$ENABLE_V8" == "true" ] && [ "$TARGET_CPU" == "arm64" ] && echo 'arm_control_flow_integrity = "none"'
       echo "clang_use_chrome_plugins = false"
       ;;
     linux)
@@ -76,6 +83,7 @@ mkdir -p "$BUILD"
       echo 'pdf_is_complete_lib = true'
       echo 'is_clang = false'
       echo 'use_custom_libcxx = false'
+      echo 'pdf_use_libyuv = false'
       if [ "$ENABLE_V8" == "true" ]; then
         # Set a toolchain with the same bitness as the target CPU
         echo "v8_snapshot_toolchain = \"//build/toolchain/linux:x86\""
@@ -92,6 +100,14 @@ mkdir -p "$BUILD"
       echo 'use_custom_libcxx = false'
       echo 'use_custom_libcxx_for_host = false'
       echo 'use_glib = false'
+      # Use the musl toolchain's headers instead of the glibc sysroot.
+      echo 'use_sysroot = false'
+
+      if [ "$TARGET_CPU" == "arm64" ]; then
+        echo 'libyuv_use_neon = false'
+        echo 'libyuv_use_sme = false'
+      fi
+
       [ "$ENABLE_V8" == "true" ] && case "$TARGET_CPU" in
         arm)
             echo "v8_snapshot_toolchain = \"//build/toolchain/linux:clang_x86_v8_arm\""
