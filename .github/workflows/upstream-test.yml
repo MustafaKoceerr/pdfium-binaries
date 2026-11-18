@@ -59,8 +59,8 @@ jobs:
       - name: Configure
         working-directory: pdfium
         run: |
-          mkdir -p out
-          cat > out/args.gn <<'EOF'
+          mkdir -p out/Release
+          cat > out/Release/args.gn <<'EOF'
           is_debug = false
           pdf_is_standalone = true
           pdf_enable_v8 = true
@@ -70,18 +70,18 @@ jobs:
           clang_use_chrome_plugins = false
           use_remoteexec = false
           EOF
-          gn gen out
+          gn gen out/Release
 
       - name: Build
         working-directory: pdfium
-        run: ninja -C out pdfium_unittests pdfium_embeddertests
+        run: ninja -C out/Release pdfium_unittests pdfium_embeddertests
 
       - name: Unit tests
         if: ${{ !cancelled() }}
         working-directory: pdfium
-        run: out/pdfium_unittests
+        run: out/Release/pdfium_unittests
 
       - name: Embedder tests
         if: ${{ !cancelled() }}
         working-directory: pdfium
-        run: out/pdfium_embeddertests
+        run: out/Release/pdfium_embeddertests

@@ -1,4 +1,4 @@
-From 86fe477861c1c10baa29092144d636eea1737df3 Mon Sep 17 00:00:00 2001
+From 45e744fba769b8cf2b0b24b92090d4e6e88f7bf8 Mon Sep 17 00:00:00 2001
 From: MustafaKoceerr <mustafakumrubm@gmail.com>
 Date: Tue, 20 Oct 2026 01:42:20 +0300
 Subject: [PATCH] Do not write a line break before XML text content
@@ -9,13 +9,18 @@ filled-in XFA field value, the line break becomes part of that text, so
 a saved form opens again with a line break in front of every value.
 
 Write the line break only when all children are elements.
+
+Re-saving a parsed element now writes its text back unchanged instead
+of adding a line break each time, so ParseAndReSaveInnerInstruction now
+expects the single line break from its input.
 ---
- core/fxcrt/xml/cfx_xmlelement.cpp          | 18 ++++++++-
- core/fxcrt/xml/cfx_xmlelement_unittest.cpp | 34 +++++++++++++++-
- fxjs/BUILD.gn                              |  1 +
- fxjs/xfa/cjx_node_embeddertest.cpp         | 47 ++++++++++++++++++++++
- xfa/fxfa/parser/xfa_utils.cpp              |  7 +++-
- 5 files changed, 103 insertions(+), 4 deletions(-)
+ core/fxcrt/xml/cfx_xmlelement.cpp             | 18 ++++++-
+ core/fxcrt/xml/cfx_xmlelement_unittest.cpp    | 34 +++++++++++++-
+ .../fxcrt/xml/cfx_xmlinstruction_unittest.cpp |  4 +-
+ fxjs/BUILD.gn                                 |  1 +
+ fxjs/xfa/cjx_node_embeddertest.cpp            | 47 +++++++++++++++++++
+ xfa/fxfa/parser/xfa_utils.cpp                 |  7 ++-
+ 6 files changed, 106 insertions(+), 5 deletions(-)
  create mode 100644 fxjs/xfa/cjx_node_embeddertest.cpp
 
 diff --git a/core/fxcrt/xml/cfx_xmlelement.cpp b/core/fxcrt/xml/cfx_xmlelement.cpp
@@ -105,11 +110,27 @@ index 3bcaf2e66..c624090b6 100644
  TEST(CFXXMLElementTest, SaveWithNamespace) {
    auto stream = pdfium::MakeRetain<StringWriteStream>();
    CFX_XMLElement node(L"test:root");
+diff --git a/core/fxcrt/xml/cfx_xmlinstruction_unittest.cpp b/core/fxcrt/xml/cfx_xmlinstruction_unittest.cpp
+index 838af3c06..6cf2421f9 100644
+--- a/core/fxcrt/xml/cfx_xmlinstruction_unittest.cpp
++++ b/core/fxcrt/xml/cfx_xmlinstruction_unittest.cpp
+@@ -149,8 +149,10 @@ TEST(CFXXMLInstructionTest, ParseAndReSaveInnerInstruction) {
+ 
+   auto out_stream = pdfium::MakeRetain<StringWriteStream>();
+   node->Save(out_stream);
++  // The parsed "\n" before the instruction is a text child, so no line break
++  // is added after the start tag and the text is written back unchanged.
+   EXPECT_EQ(
+-      "<node>\n\n"
++      "<node>\n"
+       "<?acrobat http://www.xfa.org/schema/xfa-template/3.3/ Display:1 ?>\n\n"
+       "</node>\n",
+       out_stream->ToString());
 diff --git a/fxjs/BUILD.gn b/fxjs/BUILD.gn
-index 849fa5856..fdf68f9a9 100644
+index 1a136fd91..63d45e29d 100644
 --- a/fxjs/BUILD.gn
 +++ b/fxjs/BUILD.gn
-@@ -300,6 +300,7 @@ if (pdf_enable_v8) {
+@@ -302,6 +302,7 @@ if (pdf_enable_v8) {
          "xfa/cfxjse_formcalc_context_embeddertest.cpp",
          "xfa/cjx_hostpseudomodel_embeddertest.cpp",
          "xfa/cjx_list_embeddertest.cpp",
@@ -210,5 +231,5 @@ index 194c8a5bb..15d37baea 100644
    }
  }
 -- 
-2.56.0.windows.1
+2.55.0
 
