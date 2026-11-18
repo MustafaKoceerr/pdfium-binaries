@@ -41,6 +41,8 @@ apply_patch "$PATCHES/tilepdf/xml-text-without-line-break.patch"
 # TilePDF: page import copies a reference to a missing object as null, instead of
 # dropping the whole array (a page's /Contents with one missing stream).
 apply_patch "$PATCHES/tilepdf/import-missing-object-as-null.patch"
+# TilePDF: page import maps every imported page first, so links between them stay.
+apply_patch "$PATCHES/tilepdf/import-links-between-imported-pages.patch"
 
 case "$OS" in
   android)
