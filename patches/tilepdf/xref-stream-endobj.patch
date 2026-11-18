@@ -1,0 +1,48 @@
+diff --git a/core/fpdfapi/edit/cpdf_creator.cpp b/core/fpdfapi/edit/cpdf_creator.cpp
+index 2045815ee..55a87678c 100644
+--- a/core/fpdfapi/edit/cpdf_creator.cpp
++++ b/core/fpdfapi/edit/cpdf_creator.cpp
+@@ -588,7 +588,9 @@ CPDF_Creator::Stage CPDF_Creator::WriteDoc_Stage4() {
+         }
+       }
+     }
+-    if (!archive_->WriteString("\r\nendstream")) {
++    // TilePDF: the cross-reference stream is an object, so it ends with
++    // endobj too.
++    if (!archive_->WriteString("\r\nendstream\r\nendobj")) {
+       return Stage::kInvalid;
+     }
+   }
+diff --git a/core/fpdfapi/edit/cpdf_creator_embeddertest.cpp b/core/fpdfapi/edit/cpdf_creator_embeddertest.cpp
+index a18c8c533..fe7fbc04f 100644
+--- a/core/fpdfapi/edit/cpdf_creator_embeddertest.cpp
++++ b/core/fpdfapi/edit/cpdf_creator_embeddertest.cpp
+@@ -9,6 +9,7 @@
+ #include "public/cpp/fpdf_scopers.h"
+ #include "public/fpdf_annot.h"
+ #include "public/fpdf_edit.h"
++#include "public/fpdf_save.h"
+ #include "public/fpdfview.h"
+ #include "testing/embedder_test.h"
+ #include "testing/fake_file_access.h"
+@@ -114,3 +115,20 @@ TEST_F(CPDFCreatorEmbedderTest, SingleSubsectionXrefWithFreeObjectLinkedList) {
+   ScopedSavedPage saved_page = LoadScopedSavedPage(0);
+   EXPECT_TRUE(saved_page);
+ }
++
++// TilePDF: the last cross-reference section of embedded_attachments.pdf is a
++// cross-reference stream, so an incremental save appends one.
++TEST_F(CPDFCreatorEmbedderTest, IncrementalSaveEndsXrefStreamObject) {
++  ASSERT_TRUE(OpenDocument("embedded_attachments.pdf"));
++  ASSERT_TRUE(FPDF_SaveAsCopy(document(), this, FPDF_INCREMENTAL));
++
++  const std::string saved_data = GetString();
++  const size_t last_endstream = saved_data.rfind("endstream");
++  ASSERT_NE(std::string::npos, last_endstream);
++  EXPECT_THAT(saved_data.substr(last_endstream),
++              testing::StartsWith("endstream\r\nendobj\r\nstartxref\r\n"));
++
++  ScopedSavedDoc saved_document = OpenScopedSavedDocument();
++  ASSERT_TRUE(saved_document);
++  EXPECT_TRUE(FPDF_DocumentHasValidCrossReferenceTable(saved_document.get()));
++}

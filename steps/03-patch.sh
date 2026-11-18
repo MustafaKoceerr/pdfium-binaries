@@ -47,6 +47,8 @@ apply_patch "$PATCHES/tilepdf/import-links-between-imported-pages.patch"
 apply_patch "$PATCHES/tilepdf/import-annotation-parents.patch"
 # TilePDF: deleting a page takes its form fields out of /AcroForm.
 apply_patch "$PATCHES/tilepdf/delete-page-form-fields.patch"
+# TilePDF: an incremental save's cross-reference stream ends with endobj.
+apply_patch "$PATCHES/tilepdf/xref-stream-endobj.patch"
 
 case "$OS" in
   android)
